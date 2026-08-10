@@ -1,0 +1,9 @@
+build/
+.vscode/
+.idea/
+*.xcuserdata
+*.xcworkspace
+xcuserdata/
+DerivedData/
+.DS_Store
+Thumbs.db
