@@ -15,6 +15,7 @@ inline constexpr const char* noiseGateDecay = "noiseGateDecay";
 inline constexpr const char* noiseType     = "noiseType";
 inline constexpr const char* outputGain    = "outputGain";
 inline constexpr const char* mix           = "mix";
+inline constexpr const char* calPad        = "calPad";
 inline constexpr const char* advanced      = "advanced";
 inline constexpr const char* driveTrim     = "driveTrim";
 inline constexpr const char* tapeTrim      = "tapeTrim";
@@ -25,6 +26,8 @@ inline constexpr int noiseTapeHiss  = 0;
 inline constexpr int noiseVinyl     = 1;
 inline constexpr int noiseConsole   = 2;
 inline constexpr int noiseDigital   = 3;
+
+inline constexpr float calibrationTrimDb = -6.0f;
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 {
@@ -78,6 +81,9 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
         juce::ParameterID { mix, 1 }, "Mix",
         juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
         juce::AudioParameterFloatAttributes().withLabel ("%")));
+
+    layout.add (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { calPad, 1 }, "Pad", true));
 
     layout.add (std::make_unique<juce::AudioParameterBool> (
         juce::ParameterID { advanced, 1 }, "Advanced", false));

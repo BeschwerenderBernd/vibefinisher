@@ -27,6 +27,7 @@ public:
 
         popDecayCoeff = std::exp (-1.0f / (static_cast<float> (sampleRate) * 0.0005f));
         gateAttackCoeff = std::exp (-1.0f / (static_cast<float> (sampleRate) * 0.002f));
+        driftSmoothCoeff = std::exp (-1.0f / (static_cast<float> (sampleRate) * 0.1f));
 
         reset();
     }
@@ -40,6 +41,11 @@ public:
         gateEnvelope = 0.0f;
         pinkB0 = pinkB1 = pinkB2 = pinkB3 = pinkB4 = pinkB5 = pinkB6 = 0.0f;
         popEnv[0] = popEnv[1] = 0.0f;
+        levelDriftValue = 1.0f;
+        levelDriftTarget = 1.0f;
+        samplesUntilNextDrift = 0;
+        popRateValue = 13.0f;
+        popRateTarget = 13.0f;
     }
 
     void process (juce::AudioBuffer<float>& buffer,
@@ -54,7 +60,22 @@ public:
 
         for (int i = 0; i < numSamples; ++i)
         {
-            const auto noiseGain = levelSmoother.getNextValue() * 0.01f * 0.8f;
+            if (samplesUntilNextDrift <= 0)
+            {
+                std::uniform_real_distribution<float> levelDist (0.7f, 1.0f);
+                levelDriftTarget = levelDist (gen);
+                std::uniform_real_distribution<float> rateDist (6.5f, 19.5f);
+                popRateTarget = rateDist (gen);
+                std::uniform_int_distribution<int> intervalDist (
+                    static_cast<int> (sampleRate * 0.15),
+                    static_cast<int> (sampleRate * 0.6));
+                samplesUntilNextDrift = intervalDist (gen);
+            }
+            levelDriftValue = driftSmoothCoeff * levelDriftValue + (1.0f - driftSmoothCoeff) * levelDriftTarget;
+            popRateValue = driftSmoothCoeff * popRateValue + (1.0f - driftSmoothCoeff) * popRateTarget;
+            --samplesUntilNextDrift;
+
+            const auto noiseGain = levelSmoother.getNextValue() * 0.01f * 0.8f * levelDriftValue;
 
             float inputMeanAbs = 0.0f;
             for (int ch = 0; ch < numChannels; ++ch)
@@ -105,8 +126,8 @@ private:
     {
         std::uniform_real_distribution<float> dist (0.0f, 1.0f);
         const auto r = dist (gen);
-        const auto popProb = 13.0f / static_cast<float> (sampleRate);
-        const auto textureProb = 30.0f / static_cast<float> (sampleRate);
+        const auto popProb = popRateValue / static_cast<float> (sampleRate);
+        const auto textureProb = (popRateValue * 30.0f / 13.0f) / static_cast<float> (sampleRate);
 
         float result = 0.0f;
 
@@ -163,6 +184,12 @@ private:
     float popDecayCoeff = 0.99f;
     float gateAttackCoeff = 0.99f;
     float gateEnvelope = 0.0f;
+    float levelDriftValue = 1.0f;
+    float levelDriftTarget = 1.0f;
+    int samplesUntilNextDrift = 0;
+    float driftSmoothCoeff = 0.99f;
+    float popRateValue = 13.0f;
+    float popRateTarget = 13.0f;
 };
 
 } // namespace dspx

@@ -5,6 +5,8 @@
 #include <juce_graphics/juce_graphics.h>
 
 #include "PluginProcessor.h"
+#include "UI/GateScope.h"
+#include "UI/LevelMeter.h"
 
 namespace Colours
 {
@@ -158,6 +160,8 @@ public:
     void resized() override;
     void paint (juce::Graphics&) override;
     void timerCallback() override;
+    void updateSize();
+    void updateRefTick();
 
 private:
     VibeFinisherAudioProcessor& processorRef;
@@ -174,20 +178,20 @@ private:
     juce::Label outputLabel, mixLabel;
 
     juce::TextButton advancedButton;
+    juce::TextButton padButton;
     juce::Slider driveTrimSlider, tapeTrimSlider, vinylTrimSlider, noiseTrimSlider;
     juce::Label driveTrimLabel, tapeTrimLabel, vinylTrimLabel, noiseTrimLabel;
     bool advancedVisible = false;
+    bool padState = true;
 
-    juce::Rectangle<float> meterBounds;
+    std::unique_ptr<GateScope> scope;
+    LevelMeter inMeter, outMeter;
 
     float inMeterLevel = -60.0f;
     float outMeterLevel = -60.0f;
     float inPeak = -60.0f;
     float outPeak = -60.0f;
 
-    static constexpr float meterMinDb = -60.0f;
-    static constexpr float meterMaxDb = 0.0f;
-    static constexpr float meterReleaseTime = 0.3f;
     static constexpr float peakHoldTime = 1.5f;
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> vibeAttach;
@@ -201,6 +205,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> noiseTypeAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> advancedAttach;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> padAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> driveTrimAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> tapeTrimAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> vinylTrimAttach;

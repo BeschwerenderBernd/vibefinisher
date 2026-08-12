@@ -17,6 +17,7 @@ VibeFinisherAudioProcessor::VibeFinisherAudioProcessor()
     noiseTypeParam     = apvts.getRawParameterValue (Params::noiseType);
     outputGainParam    = apvts.getRawParameterValue (Params::outputGain);
     mixParam           = apvts.getRawParameterValue (Params::mix);
+    calPadParam        = apvts.getRawParameterValue (Params::calPad);
     advancedParam      = apvts.getRawParameterValue (Params::advanced);
     driveTrimParam     = apvts.getRawParameterValue (Params::driveTrim);
     tapeTrimParam      = apvts.getRawParameterValue (Params::tapeTrim);
@@ -69,6 +70,13 @@ void VibeFinisherAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     blendSmoother.reset (sampleRate, rampSec);
     noiseLevelSmoother.reset (sampleRate, rampSec);
     mixSmoother.reset (sampleRate, rampSec);
+    calGainSmoother.reset (sampleRate, rampSec);
+    calMakeupSmoother.reset (sampleRate, rampSec);
+
+    const auto padOn = calPadParam->load() > 0.5f;
+    const auto calGainTarget = padOn ? juce::Decibels::decibelsToGain (Params::calibrationTrimDb) : 1.0f;
+    calGainSmoother.setCurrentAndTargetValue (calGainTarget);
+    calMakeupSmoother.setCurrentAndTargetValue (1.0f / calGainTarget);
 }
 
 void VibeFinisherAudioProcessor::releaseResources()
@@ -134,6 +142,18 @@ void VibeFinisherAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     juce::AudioBuffer<float> dryBuffer;
     dryBuffer.makeCopyOf (buffer);
 
+    const auto padOn = calPadParam->load() > 0.5f;
+    const auto calGainTarget = padOn ? juce::Decibels::decibelsToGain (Params::calibrationTrimDb) : 1.0f;
+    calGainSmoother.setTargetValue (calGainTarget);
+    calMakeupSmoother.setTargetValue (1.0f / calGainTarget);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const auto g = calGainSmoother.getNextValue();
+        for (int ch = 0; ch < numChannels; ++ch)
+            buffer.getWritePointer (ch)[i] *= g;
+    }
+
     driveDbSmoother.setTargetValue (driveVal * vibe * (1.0f + driveTrimVal));
     overdrive.process (buffer, driveDbSmoother);
 
@@ -151,7 +171,7 @@ void VibeFinisherAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     blendSmoother.setTargetValue (blendVal);
     dspx::parallelBlend (buffer, vinylBuffer, blendSmoother);
 
-    noiseLevelSmoother.setTargetValue (noiseLevelVal * vibe * (1.0f + noiseTrimVal));
+    noiseLevelSmoother.setTargetValue (noiseLevelVal * vibe * (1.0f + noiseTrimVal) * calGainTarget);
     noise.process (buffer, noiseLevelSmoother, gateThrVal, gateDecayVal, noiseTypeVal);
 
     mixSmoother.setTargetValue (mixVal);
@@ -165,6 +185,13 @@ void VibeFinisherAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             buffer.getWritePointer (ch)[i] = buffer.getReadPointer (ch)[i] * mix
                                            + delayedDry * (1.0f - mix);
         }
+    }
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const auto g = calMakeupSmoother.getNextValue();
+        for (int ch = 0; ch < numChannels; ++ch)
+            buffer.getWritePointer (ch)[i] *= g;
     }
 
     {

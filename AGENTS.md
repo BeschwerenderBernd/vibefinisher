@@ -15,6 +15,8 @@ Plugins are auto-copied after build to:
 
 JUCE 9.0.0 is vendored at `third_party/JUCE`.
 
+> **Note:** After every change to the code, update this file so it always reflects the current state of the plugin.
+
 ## Goal
 
 A creative mix bus tool that combines four saturation/flavor modules into one character knob. Think of it as the combined sound of signal hitting a desk channel (overdrive), being recorded to tape (compression + head bump + HF rolloff), being pressed to vinyl (saturation + mono bass + warmth), all with subtle gated noise injection. The "Vibe" macro sweeps everything simultaneously — from clean through warm to pushed.
@@ -30,6 +32,8 @@ Input → Input Gain → Overdrive → ┌─ Tape ─┐
 ```
 
 Dry capture happens after input gain (before overdrive) for the final wet/dry mix. The dry path is delay-compensated by the oversampling latency (4x IIR polyphase) via an integer delay line, and the latency is reported to the DAW via `setLatencySamples()`. Output gain is applied after the wet/dry mix so both paths track gain consistently.
+
+A fixed −6 dB calibration pad attenuates the signal before the saturation chain and is made up afterwards, so the stages are not driven too hot. It can be disabled via the PAD button to drive the stages 6 dB hotter for more grit; the switch is smoothed (5ms) to avoid clicks, and the noise level scales with the pad so its perceived loudness stays constant.
 
 ### Bus layout
 
@@ -83,6 +87,7 @@ Gate: BallisticsFilter (10ms attack, 50ms release) smooths the input level, then
 | Output | -24–+6 dB | 0 dB | Output trim after the chain |
 | Decay | 50–5000 ms | 500 ms | Noise gate fade-out time after signal drops below threshold |
 | Noise Type | choice | Tape Hiss | Tape Hiss, Vinyl, Console, Digital |
+| Pad | toggle | on | −6 dB headroom pad before the saturation chain (made up afterwards). Off drives the stages 6 dB hotter |
 
 #### Advanced (toggle via ADV button)
 
@@ -109,9 +114,11 @@ All time-varying macro parameters (drive, depth, blend, noise level, mix) are pe
 
 Modern dark theme (burnt orange accent #FF7043). Two rows of 68px arc-style rotary knobs below a centered 96px Vibe knob. An input level meter (30 Hz refresh) spans the width above Vibe, showing post-input-gain RMS in dBFS with a gate threshold marker.
 
+The header holds the PAD and ADV buttons. The input meter's reference tick marks the meter level that corresponds to −18 dBFS inside the saturation chain: −12 dBFS with the pad on, −18 dBFS with it off. Tooltips on the PAD button and INPUT knob describe the ideal range.
+
 ```
 ┌─────────────────────────────────────────┐
-│  VIBEFINISHER                           │
+│  VIBEFINISHER                 [PAD][ADV]│
 │  [=============METER=============] dB   │
 │                                         │
 │           ┌──────────────┐              │

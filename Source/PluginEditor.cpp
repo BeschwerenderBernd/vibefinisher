@@ -1,10 +1,18 @@
 #include "PluginEditor.h"
 
+static constexpr int knobW = 68;
+static constexpr int knobH = 68;
+static constexpr int vibeW = 96;
+static constexpr int vibeH = 96;
+static constexpr int labelH = 14;
+static constexpr int margin = 12;
+static constexpr int rowGap = 12;
+static constexpr int scopeH = 68;
+
 VibeFinisherAudioProcessorEditor::VibeFinisherAudioProcessorEditor (VibeFinisherAudioProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p)
 {
     setLookAndFeel (&laf);
-    setSize (520, 460);
 
     const auto initKnob = [this] (juce::Slider& s)
     {
@@ -22,21 +30,29 @@ VibeFinisherAudioProcessorEditor::VibeFinisherAudioProcessorEditor (VibeFinisher
         l.setColour (juce::Label::textColourId, Colours::textDim);
     };
 
+    scope = std::make_unique<GateScope> (processorRef.apvts);
+    addAndMakeVisible (*scope);
+
+    addAndMakeVisible (inMeter);
+    padState = processorRef.apvts.getRawParameterValue (Params::calPad)->load() > 0.5f;
+    updateRefTick();
+    addAndMakeVisible (outMeter);
+
     initKnob (vibeSlider);
     vibeSlider.setLookAndFeel (&laf);
     initLabel (vibeLabel, "VIBE");
 
-    // Row 1: creative controls
+    initKnob (inputSlider);  initLabel (inputLabel, "INPUT");
+    inputSlider.setTooltip ("Level hitting the saturation stages. Aim for the meter tick: around "
+                            "-12 dBFS RMS with the pad on, around -18 dBFS with it off.");
+    initKnob (outputSlider); initLabel (outputLabel, "OUTPUT");
+
     initKnob (driveSlider); initLabel (driveLabel, "DRIVE");
     initKnob (blendSlider); initLabel (blendLabel, "TP/VNL");
+
     initKnob (noiseSlider); initLabel (noiseLabel, "NOISE");
     initKnob (gateThrSlider); initLabel (gateThrLabel, "GATE");
-
-    // Row 2: utility controls
-    initKnob (inputSlider);  initLabel (inputLabel, "INPUT");
-    initKnob (outputSlider); initLabel (outputLabel, "OUTPUT");
     initKnob (gateDecaySlider); initLabel (gateDecayLabel, "DECAY");
-
     initKnob (mixSlider);   initLabel (mixLabel, "MIX");
 
     addAndMakeVisible (noiseTypeBox);
@@ -50,10 +66,19 @@ VibeFinisherAudioProcessorEditor::VibeFinisherAudioProcessorEditor (VibeFinisher
     advancedButton.onClick = [this]
     {
         advancedVisible = advancedButton.getToggleState();
+        updateSize();
         resized();
     };
 
-    // Advanced trims
+    addAndMakeVisible (padButton);
+    padButton.setButtonText ("PAD");
+    padButton.setClickingTogglesState (true);
+    padButton.setLookAndFeel (&laf);
+    padButton.setTooltip ("Headroom pad: attenuates the signal by 6 dB before the saturation "
+                          "stages (made up afterwards) so they are not driven too hot. Disable to "
+                          "drive them 6 dB hotter for more grit. Ideal input with pad on: around "
+                          "-12 dBFS RMS (meter tick).");
+
     initKnob (driveTrimSlider); initLabel (driveTrimLabel, "DRV TRIM");
     initKnob (tapeTrimSlider);  initLabel (tapeTrimLabel, "TAPE TRIM");
     initKnob (vinylTrimSlider); initLabel (vinylTrimLabel, "VNL TRIM");
@@ -70,6 +95,7 @@ VibeFinisherAudioProcessorEditor::VibeFinisherAudioProcessorEditor (VibeFinisher
     mixAttach        = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processorRef.apvts, Params::mix, mixSlider);
     noiseTypeAttach  = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (processorRef.apvts, Params::noiseType, noiseTypeBox);
     advancedAttach   = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processorRef.apvts, Params::advanced, advancedButton);
+    padAttach        = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processorRef.apvts, Params::calPad, padButton);
     driveTrimAttach  = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processorRef.apvts, Params::driveTrim, driveTrimSlider);
     tapeTrimAttach   = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processorRef.apvts, Params::tapeTrim, tapeTrimSlider);
     vinylTrimAttach  = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processorRef.apvts, Params::vinylTrim, vinylTrimSlider);
@@ -77,7 +103,23 @@ VibeFinisherAudioProcessorEditor::VibeFinisherAudioProcessorEditor (VibeFinisher
 
     advancedVisible = processorRef.apvts.getRawParameterValue (Params::advanced)->load() > 0.5f;
     advancedButton.setToggleState (advancedVisible, juce::dontSendNotification);
+    padButton.setToggleState (padState, juce::dontSendNotification);
 
+    inputSlider.setDoubleClickReturnValue (true, 0.0);
+    vibeSlider.setDoubleClickReturnValue (true, 50.0);
+    driveSlider.setDoubleClickReturnValue (true, 5.0);
+    blendSlider.setDoubleClickReturnValue (true, 50.0);
+    noiseSlider.setDoubleClickReturnValue (true, 10.0);
+    gateThrSlider.setDoubleClickReturnValue (true, -40.0);
+    gateDecaySlider.setDoubleClickReturnValue (true, 500.0);
+    outputSlider.setDoubleClickReturnValue (true, 0.0);
+    mixSlider.setDoubleClickReturnValue (true, 100.0);
+    driveTrimSlider.setDoubleClickReturnValue (true, 0.0);
+    tapeTrimSlider.setDoubleClickReturnValue (true, 0.0);
+    vinylTrimSlider.setDoubleClickReturnValue (true, 0.0);
+    noiseTrimSlider.setDoubleClickReturnValue (true, 0.0);
+
+    updateSize();
     resized();
     startTimerHz (30);
 }
@@ -89,6 +131,7 @@ VibeFinisherAudioProcessorEditor::~VibeFinisherAudioProcessorEditor()
     vibeSlider.setLookAndFeel (nullptr);
     noiseTypeBox.setLookAndFeel (nullptr);
     advancedButton.setLookAndFeel (nullptr);
+    padButton.setLookAndFeel (nullptr);
 }
 
 void VibeFinisherAudioProcessorEditor::paint (juce::Graphics& g)
@@ -96,163 +139,164 @@ void VibeFinisherAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillAll (Colours::bg);
 
     g.setColour (Colours::panel);
-    g.fillRoundedRectangle (12.0f, 12.0f, (float) getWidth() - 24.0f, (float) getHeight() - 24.0f, 8.0f);
+    g.fillRoundedRectangle ((float) margin, (float) margin,
+                            (float) getWidth() - margin * 2.0f,
+                            (float) getHeight() - margin * 2.0f, 8.0f);
 
     g.setColour (Colours::accent);
     g.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Bold")));
-    g.drawText ("VIBEFINISHER", 24, 10, 200, 16, juce::Justification::centredLeft);
-
-    const auto drawBar = [&] (juce::Rectangle<float> barRect, float levelDb, float peakDb,
-                               const juce::String& label, bool isInput)
-    {
-        g.setColour (Colours::track);
-        g.fillRoundedRectangle (barRect, 2.0f);
-
-        juce::ColourGradient grad;
-        grad.addColour (0.0f, juce::Colour (0xff4caf50));
-        grad.addColour (0.6f, juce::Colour (0xfff4d03f));
-        grad.addColour (0.85f, juce::Colour (0xffff7043));
-        grad.addColour (1.0f, juce::Colour (0xffe74c3c));
-        grad.point1 = barRect.getTopLeft();
-        grad.point2 = barRect.getTopRight();
-
-        const auto levelFrac = juce::jlimit (0.0f, 1.0f, (levelDb - meterMinDb) / (meterMaxDb - meterMinDb));
-        if (levelFrac > 0.001f)
-        {
-            g.setGradientFill (grad);
-            g.fillRoundedRectangle (barRect.withRight (barRect.getX() + barRect.getWidth() * levelFrac), 2.0f);
-        }
-
-        const auto peakFrac = juce::jlimit (0.0f, 1.0f, (peakDb - meterMinDb) / (meterMaxDb - meterMinDb));
-        if (peakFrac > 0.01f && peakFrac > levelFrac)
-        {
-            const float px = barRect.getX() + barRect.getWidth() * peakFrac;
-            g.setColour (Colours::textBright);
-            g.drawLine (px, barRect.getY(), px, barRect.getBottom(), 1.5f);
-        }
-
-        if (isInput)
-        {
-            const auto gateThrDb = processorRef.apvts.getRawParameterValue (Params::noiseGateThr)->load();
-            const auto gateFrac = (gateThrDb - meterMinDb) / (meterMaxDb - meterMinDb);
-            const float gateX = barRect.getX() + barRect.getWidth() * gateFrac;
-            g.setColour (Colours::textBright);
-            g.drawLine (gateX, barRect.getBottom(), gateX, barRect.getBottom() + 2.0f, 1.5f);
-        }
-
-        g.setColour (Colours::textDim);
-        g.setFont (juce::Font (juce::FontOptions (8.0f)));
-        g.drawText (label, (int) barRect.getX() - 18, (int) barRect.getY() - 1, 18, (int) barRect.getHeight(),
-                    juce::Justification::centredLeft);
-
-        g.drawText (juce::String (static_cast<int> (levelDb)) + " dB",
-                    (int) barRect.getRight() + 2, (int) barRect.getY() - 1, 46, (int) barRect.getHeight(),
-                    juce::Justification::centredLeft);
-    };
-
-    const auto b = meterBounds;
-    const float barH = 6.0f;
-    const float gap = 2.0f;
-    drawBar (juce::Rectangle<float> (b.getX(), b.getY(), b.getWidth(), barH), inMeterLevel, inPeak, "IN", true);
-    drawBar (juce::Rectangle<float> (b.getX(), b.getY() + barH + gap, b.getWidth(), barH), outMeterLevel, outPeak, "OUT", false);
+    g.drawText ("VIBEFINISHER", margin + 12, 10, 200, 16, juce::Justification::centredLeft);
 }
 
 void VibeFinisherAudioProcessorEditor::timerCallback()
 {
     const auto dt = 1.0f / 30.0f;
-    const auto releaseCoeff = std::exp (-dt / meterReleaseTime);
+    const auto releaseCoeff = std::exp (-dt / 0.3f);
     const auto peakReleaseCoeff = std::exp (-dt / peakHoldTime);
 
-    const auto update = [&] (float& level, float& peak, float newDb)
+    const auto update = [&] (float& level, float& pk, float newDb)
     {
         if (newDb > level)
             level = newDb;
         else
             level += releaseCoeff * (newDb - level);
 
-        if (newDb > peak)
-            peak = newDb;
+        if (newDb > pk)
+            pk = newDb;
         else
-            peak += peakReleaseCoeff * (newDb - peak);
+            pk += peakReleaseCoeff * (newDb - pk);
 
-        level = juce::jmax (level, meterMinDb);
-        peak = juce::jmax (peak, meterMinDb);
+        level = juce::jmax (level, -60.0f);
+        pk = juce::jmax (pk, -60.0f);
     };
 
     update (inMeterLevel, inPeak, processorRef.inputLevel.load (std::memory_order_relaxed));
     update (outMeterLevel, outPeak, processorRef.outputLevel.load (std::memory_order_relaxed));
 
-    repaint();
+    scope->push (inMeterLevel, outMeterLevel);
+    scope->repaint();
+
+    const auto padOn = processorRef.apvts.getRawParameterValue (Params::calPad)->load() > 0.5f;
+    if (padOn != padState)
+    {
+        padState = padOn;
+        updateRefTick();
+    }
+
+    inMeter.setLevels (inMeterLevel, inPeak);
+    outMeter.setLevels (outMeterLevel, outPeak);
+}
+
+void VibeFinisherAudioProcessorEditor::updateRefTick()
+{
+    constexpr float internalRefDb = -18.0f;
+    inMeter.setShowRefTick (padState ? internalRefDb - Params::calibrationTrimDb : internalRefDb);
+}
+
+void VibeFinisherAudioProcessorEditor::updateSize()
+{
+    constexpr int scopeRowY = 38;
+    const int vibeRowY = scopeRowY + scopeH + labelH + rowGap;
+    const int noiseRowY = vibeRowY + vibeH + labelH + rowGap;
+    const int noiseRowBottom = noiseRowY + knobH + labelH;
+
+    if (advancedVisible)
+    {
+        const int advRowY = noiseRowY + knobH + labelH + rowGap;
+        setSize (520, advRowY + knobH + labelH + margin);
+    }
+    else
+    {
+        setSize (520, noiseRowBottom + margin);
+    }
 }
 
 void VibeFinisherAudioProcessorEditor::resized()
 {
-    constexpr int knobW = 68;
-    constexpr int knobH = 68;
-    constexpr int labelH = 14;
-    constexpr int labelW = 80;
-    constexpr int margin = 20;
-    const int totalW = getWidth() - margin * 2;
+    const int w = getWidth();
+    const int innerW = w - margin * 2;
 
-    meterBounds = juce::Rectangle<float> (static_cast<float> (margin), 28.0f,
-                                           static_cast<float> (totalW), 14.0f);
+    // --- Header: title left, PAD + ADV buttons right ---
+    constexpr int headerY = 14;
+    constexpr int hdrBtnW = 46;
+    constexpr int hdrGap = 6;
+    advancedButton.setBounds (w - margin - hdrBtnW, headerY, hdrBtnW, 18);
+    padButton.setBounds (w - margin - hdrBtnW * 2 - hdrGap, headerY, hdrBtnW, 18);
 
-    // --- Vibe knob (big, centered) ---
-    constexpr int bigKnobSize = 96;
-    const int vibeY = 46;
-    vibeSlider.setBounds ((getWidth() - bigKnobSize) / 2, vibeY, bigKnobSize, bigKnobSize);
-    vibeLabel.setBounds ((getWidth() - labelW) / 2, vibeY + bigKnobSize, labelW, labelH);
+    // --- Scope row: INPUT | meter | scope | meter | OUTPUT ---
+    constexpr int meterW = 8;
+    constexpr int meterGap = 4;
+    constexpr int scopeGap = 8;
+    const int scopeRowY = 38;
+    const int leftClusterW = knobW + meterGap + meterW + scopeGap;
+    const int rightClusterW = scopeGap + meterW + meterGap + knobW;
+    const int scopeX = margin + leftClusterW;
+    const int scopeW = innerW - leftClusterW - rightClusterW;
 
-    // --- Row 1: creative controls (4 knobs + ADV button) ---
-    const int numRow1 = 5;
-    const int row1Y = vibeY + bigKnobSize + labelH + 10;
-    const int row1Spacing = (totalW - numRow1 * knobW) / (numRow1 + 1);
+    inputSlider.setBounds (margin, scopeRowY, knobW, knobH);
+    inputLabel.setBounds (margin, scopeRowY + knobH, knobW, labelH);
 
-    juce::Slider* row1Knobs[] = { &driveSlider, &blendSlider, &noiseSlider, &gateThrSlider, nullptr };
-    juce::Label* row1Labels[] = { &driveLabel, &blendLabel, &noiseLabel, &gateThrLabel, nullptr };
+    inMeter.setBounds (margin + knobW + meterGap, scopeRowY, meterW, knobH);
 
-    for (int i = 0; i < 4; ++i)
-    {
-        const int x = margin + row1Spacing + i * (knobW + row1Spacing);
-        row1Knobs[i]->setBounds (x, row1Y, knobW, knobH);
-        row1Labels[i]->setBounds (x - (labelW - knobW) / 2, row1Y + knobH, labelW, labelH);
-    }
+    scope->setBounds (scopeX, scopeRowY, scopeW, scopeH);
 
-    {
-        const int x = margin + row1Spacing + 4 * (knobW + row1Spacing);
-        const int advW = 62;
-        advancedButton.setBounds (x + (knobW - advW) / 2, row1Y + 18, advW, 24);
-    }
+    const int outMeterX = scopeX + scopeW + scopeGap;
+    outMeter.setBounds (outMeterX, scopeRowY, meterW, knobH);
 
-    // --- Row 2: utility controls (3 knobs + combo + MIX) ---
-    const int numRow2 = 5;
-    const int row2Y = row1Y + knobH + labelH + 11;
-    const int row2Spacing = (totalW - numRow2 * knobW) / (numRow2 + 1);
+    const int outputX = outMeterX + meterW + meterGap;
+    outputSlider.setBounds (outputX, scopeRowY, knobW, knobH);
+    outputLabel.setBounds (outputX, scopeRowY + knobH, knobW, labelH);
 
-    juce::Slider* row2Knobs[] = { &inputSlider, &outputSlider, &gateDecaySlider, nullptr, &mixSlider };
-    juce::Label* row2Labels[] = { &inputLabel, &outputLabel, &gateDecayLabel, nullptr, &mixLabel };
+    // --- Vibe row: DRIVE | VIBE | TP/VNL (centered group) ---
+    const int vibeRowY = scopeRowY + scopeH + labelH + rowGap;
+    const int driveVibeGap = 12;
+    const int groupWidth = knobW + driveVibeGap + vibeW + driveVibeGap + knobW;
+    const int groupStartX = margin + (innerW - groupWidth) / 2;
 
-    for (int i = 0; i < 3; ++i)
-    {
-        const int x = margin + row2Spacing + i * (knobW + row2Spacing);
-        row2Knobs[i]->setBounds (x, row2Y, knobW, knobH);
-        row2Labels[i]->setBounds (x - (labelW - knobW) / 2, row2Y + knobH, labelW, labelH);
-    }
+    const int driveKnobY = vibeRowY + (vibeH - knobH) / 2;
+    driveSlider.setBounds (groupStartX, driveKnobY, knobW, knobH);
+    driveLabel.setBounds (groupStartX, vibeRowY + vibeH, knobW, labelH);
 
-    const int mixSlotX = margin + row2Spacing + 4 * (knobW + row2Spacing);
-    row2Knobs[4]->setBounds (mixSlotX, row2Y, knobW, knobH);
-    row2Labels[4]->setBounds (mixSlotX - (labelW - knobW) / 2, row2Y + knobH, labelW, labelH);
+    const int vibeX = groupStartX + knobW + driveVibeGap;
+    vibeSlider.setBounds (vibeX, vibeRowY, vibeW, vibeH);
+    vibeLabel.setBounds (vibeX + (vibeW - knobW) / 2, vibeRowY + vibeH, knobW, labelH);
 
-    const int comboSlotX = margin + row2Spacing + 3 * (knobW + row2Spacing);
-    const int comboW = 100;
-    noiseTypeBox.setBounds (comboSlotX + (knobW - comboW) / 2, row2Y + 18, comboW, 24);
+    const int blendX = vibeX + vibeW + driveVibeGap;
+    blendSlider.setBounds (blendX, driveKnobY, knobW, knobH);
+    blendLabel.setBounds (blendX, vibeRowY + vibeH, knobW, labelH);
 
-    // --- Advanced panel ---
-    const int advRowY = row2Y + knobH + labelH + 6;
+    // --- Noise row: NOISE | [Type] | GATE | DECAY | MIX ---
+    const int noiseRowY = vibeRowY + vibeH + labelH + rowGap;
+    const int comboW = 88;
+    const int comboH = 24;
+    const int numNoiseSlots = 5;
+    const int totalNoiseSlotW = knobW * 4 + comboW;
+    const int noiseGap = (innerW - totalNoiseSlotW) / (numNoiseSlots + 1);
+
+    int nx = margin + noiseGap;
+    noiseSlider.setBounds (nx, noiseRowY, knobW, knobH);
+    noiseLabel.setBounds (nx, noiseRowY + knobH, knobW, labelH);
+
+    nx += knobW + noiseGap;
+    noiseTypeBox.setBounds (nx, noiseRowY + (knobH - comboH) / 2, comboW, comboH);
+
+    nx += comboW + noiseGap;
+    gateThrSlider.setBounds (nx, noiseRowY, knobW, knobH);
+    gateThrLabel.setBounds (nx, noiseRowY + knobH, knobW, labelH);
+
+    nx += knobW + noiseGap;
+    gateDecaySlider.setBounds (nx, noiseRowY, knobW, knobH);
+    gateDecayLabel.setBounds (nx, noiseRowY + knobH, knobW, labelH);
+
+    nx += knobW + noiseGap;
+    mixSlider.setBounds (nx, noiseRowY, knobW, knobH);
+    mixLabel.setBounds (nx, noiseRowY + knobH, knobW, labelH);
+
+    // --- Advanced row ---
+    const int advRowY = noiseRowY + knobH + labelH + rowGap;
     const bool show = advancedVisible;
-
     const int numAdv = 4;
-    const int advSpacing = (totalW - numAdv * knobW) / (numAdv + 1);
+    const int advGap = (innerW - numAdv * knobW) / (numAdv + 1);
 
     juce::Slider* advKnobs[] = { &driveTrimSlider, &tapeTrimSlider, &vinylTrimSlider, &noiseTrimSlider };
     juce::Label* advLabels[] = { &driveTrimLabel, &tapeTrimLabel, &vinylTrimLabel, &noiseTrimLabel };
@@ -263,9 +307,9 @@ void VibeFinisherAudioProcessorEditor::resized()
         advLabels[i]->setVisible (show);
         if (show)
         {
-            const int x = margin + advSpacing + i * (knobW + advSpacing);
+            const int x = margin + advGap + i * (knobW + advGap);
             advKnobs[i]->setBounds (x, advRowY, knobW, knobH);
-            advLabels[i]->setBounds (x - (labelW - knobW) / 2, advRowY + knobH, labelW, labelH);
+            advLabels[i]->setBounds (x, advRowY + knobH, knobW, labelH);
         }
     }
 }

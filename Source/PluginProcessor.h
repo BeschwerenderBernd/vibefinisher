@@ -63,6 +63,8 @@ private:
     Smoother blendSmoother;
     Smoother noiseLevelSmoother;
     Smoother mixSmoother;
+    Smoother calGainSmoother;
+    Smoother calMakeupSmoother;
 
     std::atomic<float>* inputGainParam = nullptr;
     std::atomic<float>* vibeParam = nullptr;
@@ -74,6 +76,7 @@ private:
     std::atomic<float>* noiseTypeParam = nullptr;
     std::atomic<float>* outputGainParam = nullptr;
     std::atomic<float>* mixParam = nullptr;
+    std::atomic<float>* calPadParam = nullptr;
     std::atomic<float>* advancedParam = nullptr;
     std::atomic<float>* driveTrimParam = nullptr;
     std::atomic<float>* tapeTrimParam = nullptr;
